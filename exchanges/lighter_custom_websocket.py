@@ -174,15 +174,23 @@ class LighterCustomWebSocketManager:
             raise
 
     def get_best_levels(self) -> Tuple[Tuple[Optional[float], Optional[float]], Tuple[Optional[float], Optional[float]]]:
-        """Get the best bid and ask levels with sufficient size for our order (~$5000)."""
+        """Get the best bid and ask levels with sufficient size for our order."""
         try:
-            # Get all bid levels with sufficient size
-            bid_levels = [(price, size) for price, size in self.order_book["bids"].items()
-                          if size * price >= 40000]
+            min_notional = float(os.getenv('LIGHTER_MIN_LEVEL_NOTIONAL', '0'))
+            if min_notional > 0:
+                bid_levels = [(price, size) for price, size in self.order_book["bids"].items()
+                              if size * price >= min_notional]
+                ask_levels = [(price, size) for price, size in self.order_book["asks"].items()
+                              if size * price >= min_notional]
+            else:
+                bid_levels = list(self.order_book["bids"].items())
+                ask_levels = list(self.order_book["asks"].items())
 
-            # Get all ask levels with sufficient size
-            ask_levels = [(price, size) for price, size in self.order_book["asks"].items()
-                          if size * price >= 40000]
+            # Fall back to unfiltered if filtered levels are empty
+            if not bid_levels and self.order_book["bids"]:
+                bid_levels = list(self.order_book["bids"].items())
+            if not ask_levels and self.order_book["asks"]:
+                ask_levels = list(self.order_book["asks"].items())
 
             # Get best bid (highest price) and best ask (lowest price)
             best_bid = max(bid_levels) if bid_levels else (None, None)
@@ -192,6 +200,16 @@ class LighterCustomWebSocketManager:
         except (ValueError, KeyError) as e:
             self._log(f"Error getting best levels: {e}", "ERROR")
             return (None, None), (None, None)
+
+    def get_order_book_levels(self) -> Dict[str, List[Tuple[Decimal, Decimal]]]:
+        """Return sorted order book levels [(price, size), ...] as Decimals."""
+        try:
+            bids = [(Decimal(str(p)), Decimal(str(s))) for p, s in sorted(self.order_book["bids"].items(), reverse=True)]
+            asks = [(Decimal(str(p)), Decimal(str(s))) for p, s in sorted(self.order_book["asks"].items())]
+            return {"bids": bids, "asks": asks}
+        except Exception as e:
+            self._log(f"Error getting order book levels: {e}", "WARNING")
+            return {"bids": [], "asks": []}
 
     def cleanup_old_order_book_levels(self):
         """Clean up old order book levels to prevent memory leaks."""
@@ -357,8 +375,10 @@ class LighterCustomWebSocketManager:
                                     # Update global variables
                                     if best_bid_price is not None:
                                         self.best_bid = best_bid_price
+                                        self.best_bid_size = best_bid_size
                                     if best_ask_price is not None:
                                         self.best_ask = best_ask_price
+                                        self.best_ask_size = best_ask_size
 
                                 elif data.get("type") == "ping":
                                     # Respond to ping with pong

@@ -275,6 +275,17 @@ class BinanceClient(BaseExchangeClient):
         
         return best_bid, best_ask, best_bid_qty, best_ask_qty
 
+    def get_order_book_levels(self, limit: int = 20) -> Dict[str, List[Tuple[Decimal, Decimal]]]:
+        """Fetch sorted order book levels [(price, size), ...] from Binance."""
+        try:
+            res = self.client.depth(symbol=self.config.contract_id, limit=limit)
+            bids = [(Decimal(str(item[0])), Decimal(str(item[1]))) for item in res.get('bids', [])]
+            asks = [(Decimal(str(item[0])), Decimal(str(item[1]))) for item in res.get('asks', [])]
+            return {"bids": bids, "asks": asks}
+        except Exception as e:
+            self.logger.log(f"Error fetching Binance depth: {e}", "WARNING")
+            return {"bids": [], "asks": []}
+
     async def place_open_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
         """Place an open order with Binance with retry logic for POST_ONLY rejections."""
         max_retries = 1

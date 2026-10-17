@@ -19,6 +19,7 @@ from exchanges.base import OrderResult
 from helpers import TradingLogger
 from helpers.lark_bot import LarkBot
 from helpers.telegram_bot import TelegramBot
+from helpers.preflight_guard import PreFlightLiquidityGuard, PreFlightCheckResult
 
 
 @dataclass
@@ -42,6 +43,10 @@ class PerpArbConfig:
     max_slippage_leg1: Decimal = Decimal('0.50')
     max_slippage_leg2: Decimal = Decimal('0.50')
     close_order_side: str = "" 
+    min_depth_ratio: Decimal = Decimal('1.5')   # 对冲腿深度倍数要求 (>= 1.5x)
+    max_slippage_bps: Decimal = Decimal('15')   # 允许的最大穿透滑点 (基点 bps，15 = 0.15%)
+    enable_preflight_guard: bool = True         # 是否开启发单前流动性与滑点防御检查
+    adaptive_sizing: bool = True                # 若深度偏薄，自适应降阶至安全下单数量 
 
 
 @dataclass
@@ -97,6 +102,14 @@ class PerpArbBot:
         self.last_price_diff_save_time = 0
         
         self.last_log_time = 0
+
+        # Pre-flight Liquidity Guard
+        self.preflight_guard = PreFlightLiquidityGuard(
+            min_depth_ratio=getattr(config, 'min_depth_ratio', Decimal('1.5')),
+            max_slippage_bps=getattr(config, 'max_slippage_bps', Decimal('15')),
+            adaptive_sizing=getattr(config, 'adaptive_sizing', True),
+            min_order_size=config.min_order_size,
+        )
 
     async def _initialize_clients(self):
         """Initialize both exchange clients."""
@@ -336,7 +349,44 @@ class PerpArbBot:
                 "INFO"
             )
             return OrderState()
-        
+
+        # Pre-Flight Liquidity & Slippage Guard on Leg 2 (taker/hedge leg)
+        if getattr(self.config, 'enable_preflight_guard', True):
+            leg2_levels = []
+            if hasattr(self.leg2_client, 'get_order_book_levels'):
+                raw_book = self.leg2_client.get_order_book_levels()
+                leg2_levels = raw_book.get('bids' if leg2_direction == 'sell' else 'asks', [])
+
+            if not leg2_levels:
+                leg2_price = best_orders[direction]["best_bid"][0] if leg2_direction == "sell" else best_orders[direction]["best_ask"][0]
+                leg2_levels = [(leg2_price, leg2_available)]
+
+            check_res = self.preflight_guard.check_liquidity(
+                orderbook_levels=leg2_levels,
+                side=leg2_direction,
+                desired_quantity=order_quantity
+            )
+
+            if not check_res.passed:
+                self.logger.log(
+                    f"🛡️ [PRE-FLIGHT BLOCKED] {check_res.reason}. Skipping trade to prevent single-leg risk.",
+                    "WARNING"
+                )
+                return OrderState()
+
+            if check_res.safe_quantity < order_quantity:
+                self.logger.log(
+                    f"🛡️ [PRE-FLIGHT ADAPTIVE] Sizing down from {order_quantity} to {check_res.safe_quantity} to guarantee liquidity & low slippage.",
+                    "INFO"
+                )
+                order_quantity = check_res.safe_quantity
+                if order_quantity < self.config.min_order_size:
+                    self.logger.log(
+                        f"🛡️ [PRE-FLIGHT BLOCKED] Adaptive safe quantity {order_quantity} < min_order_size {self.config.min_order_size}, skipping",
+                        "INFO"
+                    )
+                    return OrderState()
+
         self.logger.log(
             f"Executing {action} orders: direction={direction}, "
             f"quantity={order_quantity}, leg1={leg1_direction}, leg2={leg2_direction}",
@@ -693,11 +743,17 @@ def parse_arguments():
     parser.add_argument('--open', type=Decimal, default=Decimal("4.00"),
                         help='min_price_diff_open (default: 4.00)')
     parser.add_argument('--close', type=Decimal, default=Decimal("-1.00"),
-                        help='min_price_diff_open (default: -1.00)')
+                        help='min_price_diff_close (default: -1.00)')
     parser.add_argument('--slippage', type=Decimal, default=Decimal("4.00"),
                         help='max_slippage (default: 4.00)')
     parser.add_argument('--order-interval', type=Decimal, default=Decimal("60"),
-                        help='max_slippage (default: 60)')
+                        help='order interval seconds (default: 60)')
+    parser.add_argument('--min-depth-ratio', type=Decimal, default=Decimal("1.5"),
+                        help='Minimum required depth ratio on hedge leg (default: 1.5)')
+    parser.add_argument('--max-slippage-bps', type=Decimal, default=Decimal("15"),
+                        help='Maximum allowed taker slippage in bps (default: 15 bps = 0.15%)')
+    parser.add_argument('--disable-preflight', action='store_true',
+                        help='Disable pre-flight liquidity and slippage guard')
     parser.add_argument('--env-file', type=str, default=".env",
                         help=".env file path (default: .env)")
 
@@ -722,14 +778,18 @@ async def main():
         exchange_leg2="lighter",
         max_quantity=args.quantity,
         max_total_size=args.total,
-        order_interval=args.order_interval*1000,       # 1 second
+        order_interval=args.order_interval*1000,       # ms
         loop_interval=1*1000,        # 1 second
-        order_timeout=5*1000,       # 10 seconds
+        order_timeout=5*1000,       # 5 seconds
         min_price_diff_open=args.open,
         min_price_diff_close=args.close,
         min_order_size=Decimal("0.025"),
         max_slippage_leg1=args.slippage,
         max_slippage_leg2=args.slippage,
+        min_depth_ratio=args.min_depth_ratio,
+        max_slippage_bps=args.max_slippage_bps,
+        enable_preflight_guard=not args.disable_preflight,
+        adaptive_sizing=True,
     )
     
     bot = PerpArbBot(config)

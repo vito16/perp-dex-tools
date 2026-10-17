@@ -2,6 +2,11 @@
 Helper modules for perp-dex-tools.
 """
 
-from .logger import TradingLogger
+try:
+    from .logger import TradingLogger
+except ImportError:
+    TradingLogger = None
 
-__all__ = ['TradingLogger']
+from .preflight_guard import PreFlightLiquidityGuard, PreFlightCheckResult
+
+__all__ = ['TradingLogger', 'PreFlightLiquidityGuard', 'PreFlightCheckResult']

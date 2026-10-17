@@ -248,6 +248,24 @@ class LighterClient(BaseExchangeClient):
 
         return best_bid, best_ask
 
+    @query_retry(default_return=(Decimal('0'), Decimal('0'), Decimal('0'), Decimal('0')))
+    async def fetch_bbo_prices_quanities(self, contract_id: str) -> Tuple[Decimal, Decimal, Decimal, Decimal]:
+        """Fetch best bid and offer prices and quantities from WebSocket order book."""
+        if (hasattr(self, 'ws_manager') and self.ws_manager and
+                self.ws_manager.best_bid and self.ws_manager.best_ask):
+            best_bid = Decimal(str(self.ws_manager.best_bid))
+            best_ask = Decimal(str(self.ws_manager.best_ask))
+            best_bid_qty = Decimal(str(getattr(self.ws_manager, 'best_bid_size', 0) or 0))
+            best_ask_qty = Decimal(str(getattr(self.ws_manager, 'best_ask_size', 0) or 0))
+            return best_bid, best_ask, best_bid_qty, best_ask_qty
+        return Decimal('0'), Decimal('0'), Decimal('0'), Decimal('0')
+
+    def get_order_book_levels(self) -> Dict[str, List[Tuple[Decimal, Decimal]]]:
+        """Return sorted order book levels [(price, size), ...] from WebSocket manager."""
+        if hasattr(self, 'ws_manager') and self.ws_manager:
+            return self.ws_manager.get_order_book_levels()
+        return {"bids": [], "asks": []}
+
     async def _submit_order_with_retry(self, order_params: Dict[str, Any]) -> OrderResult:
         """Submit an order with Lighter using official SDK."""
         # Ensure client is initialized
