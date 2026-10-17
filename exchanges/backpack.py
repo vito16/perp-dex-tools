@@ -383,7 +383,7 @@ class BackpackClient(BaseExchangeClient):
 
         return OrderResult(success=False, error_message='Max retries exceeded')
 
-    async def place_market_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
+    async def place_market_order(self, contract_id: str, quantity: Decimal, direction: str, **kwargs) -> OrderResult:
         """Place a market order with Backpack."""
         # Validate direction
         if direction == 'buy':
@@ -393,6 +393,12 @@ class BackpackClient(BaseExchangeClient):
         else:
             raise Exception(f"[OPEN] Invalid direction: {direction}")
 
+        extra_order_kwargs = {}
+        if 'auto_borrow_and_repay' in kwargs:
+            extra_order_kwargs['autoBorrowAndRepay'] = kwargs['auto_borrow_and_repay']
+        elif 'autoBorrowAndRepay' in kwargs:
+            extra_order_kwargs['autoBorrowAndRepay'] = kwargs['autoBorrowAndRepay']
+
         # Run sync SDK call in thread pool to avoid blocking the event loop and reduce latency
         result = await asyncio.to_thread(
             self.account_client.execute_order,
@@ -400,6 +406,7 @@ class BackpackClient(BaseExchangeClient):
             side=side,
             order_type=OrderTypeEnum.MARKET,
             quantity=str(quantity),
+            **extra_order_kwargs
         )
 
         if not isinstance(result, dict):

@@ -445,15 +445,37 @@ class PerpArbBot:
                     self.logger.log(f"Error placing orders (attempt {attempt + 1}): {e}", "ERROR")
                     self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
 
-            if leg2_order_result.success and self.order_filled_event[2].is_set():
-                order_state.leg2_success = True
-                order_state.leg2_filled_size = leg2_order_result.size
-                order_state.leg2_filled_price = leg2_order_result.price
-                order_state.leg2_order_id = leg2_order_result.order_id
+            if not order_state.leg2_success:
                 self.logger.log(
-                    f"[LEG2] Order filled: {leg2_order_result.size} @ {leg2_order_result.price}",
-                    "INFO"
+                    f"[EMERGENCY] Leg 1 filled ({leg1_order_result.size} @ {leg1_order_result.price}) but Leg 2 failed after {max_retries} attempts! Naked exposure detected.",
+                    "ERROR"
                 )
+                unwind_msg = (
+                    f"🚨 <b>[EMERGENCY NAKED EXPOSURE]</b>\n"
+                    f"Leg 1 ({self.config.exchange_leg1}) filled: {leg1_order_result.size} @ {leg1_order_result.price}\n"
+                    f"Leg 2 ({self.config.exchange_leg2}) FAILED after {max_retries} retries!\n"
+                    f"Attempting emergency unwind of Leg 1..."
+                )
+                await self.send_notification(unwind_msg)
+                
+                # Unwind Leg 1 to restore delta neutrality
+                unwind_direction = "SHORT" if leg1_direction.upper() == "LONG" else "LONG"
+                try:
+                    unwind_result = await self.leg1_client.place_market_order(
+                        self.config.contract_id_leg1,
+                        leg1_order_result.size,
+                        unwind_direction,
+                        reduce_only=True
+                    )
+                    if unwind_result.success:
+                        self.logger.log(f"[EMERGENCY] Leg 1 unwound successfully: {unwind_result.size} @ {unwind_result.price}", "INFO")
+                        await self.send_notification("✅ Leg 1 emergency unwind successful. Market neutrality preserved.")
+                    else:
+                        self.logger.log(f"[CRITICAL] Leg 1 emergency unwind failed: {unwind_result.error_message}", "CRITICAL")
+                        await self.send_notification(f"❌ Leg 1 emergency unwind failed: {unwind_result.error_message}. Manual intervention required!")
+                except Exception as unwind_err:
+                    self.logger.log(f"[CRITICAL] Error unwinding Leg 1: {unwind_err}", "CRITICAL")
+                    await self.send_notification(f"❌ Error unwinding Leg 1: {unwind_err}")
 
         return order_state
             

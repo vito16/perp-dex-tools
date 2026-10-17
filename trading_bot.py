@@ -285,8 +285,9 @@ class TradingBot:
                 "TELEGRAM_NOTIFY_ORDER_SUBMITTED",
                 True,
             ):
+                exchange_label = f"{self.config.exchange.upper()} {self.config.ticker.upper()}"
                 await self._notify_order_event(
-                    "🟡 Arcus QQQ 新开仓订单",
+                    f"🟡 [{exchange_label}] 新开仓订单",
                     order_result.order_id,
                     self.config.direction,
                     order_result.filled_size
@@ -351,8 +352,9 @@ class TradingBot:
                 True,
             )
         ):
+            exchange_label = f"{self.config.exchange.upper()} {self.config.ticker.upper()}"
             await self._notify_order_event(
-                "🟣 Arcus QQQ 新止盈平仓单",
+                f"🟣 [{exchange_label}] 新止盈平仓单",
                 close_order_result.order_id,
                 side,
                 close_order_result.size,
@@ -373,8 +375,9 @@ class TradingBot:
                 "TELEGRAM_NOTIFY_ORDER_FILLED",
                 True,
             ):
+                exchange_label = f"{self.config.exchange.upper()} {self.config.ticker.upper()}"
                 await self._notify_order_event(
-                    "✅ Arcus QQQ 开仓成交",
+                    f"✅ [{exchange_label}] 开仓成交",
                     order_result.order_id,
                     self.config.direction,
                     self.order_filled_amount
@@ -767,8 +770,9 @@ class TradingBot:
                 unrealized = "0"
                 funding = "N/A"
 
+            exchange_label = f"{self.config.exchange.upper()} {self.config.ticker.upper()}"
             message = (
-                "📊 Arcus QQQ 状态\n\n"
+                f"📊 [{exchange_label}] 状态\n\n"
                 f"方向：{side}\n"
                 f"仓位：{size}\n"
                 f"平均入场价：{entry}\n"

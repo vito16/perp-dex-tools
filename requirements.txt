@@ -35,3 +35,14 @@ ethereal-sdk==0.1.0b23
 
 # standx
 pynacl==1.6.2
+
+# BingX & CCXT exchange support
+ccxt>=4.0.0
+
+# Hyperliquid exchange SDK
+hyperliquid-python-sdk>=0.4.0
+eth-account>=0.8.0
+
+# Binance futures connector
+binance-futures-connector>=3.8.0
+

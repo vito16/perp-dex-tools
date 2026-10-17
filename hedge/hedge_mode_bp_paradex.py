@@ -197,9 +197,8 @@ class HedgeBot:
             # Calculate position difference
             # Paradex position is opposite to Backpack (hedge)
             expected_paradex = -self.backpack_position
-            position_diff = self.paradex_position - expected_paradex
-            
-            threshold = Decimal('0.001')  # Allow small rounding errors
+            min_threshold = getattr(self, 'paradex_min_qty', None) or Decimal('0.001')
+            threshold = min_threshold  # Allow small rounding errors
             
             if abs(position_diff) > threshold:
                 self.logger.warning(f"⚠️ Position mismatch detected!")
@@ -450,8 +449,13 @@ class HedgeBot:
         total_fee = Decimal('0')
         weighted_price_sum = Decimal('0')
         
+        min_threshold = getattr(self, 'paradex_min_qty', None) or Decimal('0.001')
+        
         for attempt in range(1, max_retries + 1):
-            if remaining <= Decimal('0.001'):  # Small threshold
+            if remaining <= Decimal('0'):
+                break
+            if attempt > 1 and remaining < min_threshold:
+                self.logger.info(f"Remaining hedge size {remaining} is below Paradex min qty {min_threshold}, stopping retries.")
                 break
                 
             try:

@@ -316,4 +316,9 @@ async def make_app():
     return app
 
 if __name__ == '__main__':
-    web.run_app(make_app(), port=8080)
+    host = os.getenv('DASHBOARD_HOST', '127.0.0.1')
+    port = int(os.getenv('DASHBOARD_PORT', '8080'))
+    if host == '0.0.0.0':
+        print("⚠️ WARNING: Dashboard is binding to 0.0.0.0 without authentication. Protect via firewall or reverse proxy!")
+    print(f"🚀 Starting Dashboard Server at http://{host}:{port}")
+    web.run_app(make_app(), host=host, port=port)

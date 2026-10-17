@@ -365,9 +365,9 @@ class FundingArbBot:
             if not market_order_result.success:
                 log_message = f"Failed to place [{direction.upper()}] [{market_type.upper()}] [{direction.upper()}] order: {market_order_result.error_message}"
                 self.logger.log(log_message, "ERROR")
-                self._lark_bot_notify(log_message)
+                await self._lark_bot_notify(log_message)
                 return False
-            self._lark_bot_notify(f"MarketOrder [{direction.upper()}] [{market_type.upper()}] [{direction.upper()}]: {market_order_result.error_message}")
+            await self._lark_bot_notify(f"MarketOrder [{direction.upper()}] [{market_type.upper()}] matched size {mismatch_amount}")
         else:
             # order amount too small
             self.logger.log(f"handle_order_unfilled: order amount too small, size {mismatch_amount}, min order notional {min_amount}")
@@ -470,7 +470,7 @@ class FundingArbBot:
         liq_rate = await self.calculate_liquidation_rate()
         if liq_rate >= self.config.max_liquidation_rate:
             await self.emergency_reduce_position()
-            time.sleep(3)
+            await asyncio.sleep(3)
         return await self._log_status_periodically()
 
     async def calculate_liquidation_rate(self) -> float:
@@ -482,12 +482,21 @@ class FundingArbBot:
         """
         position: Optional[PositionData] = await self.perp_exchange_client.get_account_position()
         if not position:
-            return 0
-        entry_price = Decimal(str(position.entryPrice))
-        mark_price = Decimal(str(position.markPrice))
-        liquidation_price = Decimal(str(position.estLiquidationPrice))
-        liquidation_rate = (mark_price - entry_price) / (liquidation_price - entry_price)
-        return liquidation_rate
+            return 0.0
+        try:
+            entry_price = Decimal(str(position.entryPrice))
+            mark_price = Decimal(str(position.markPrice))
+            if not getattr(position, 'estLiquidationPrice', None):
+                return 0.0
+            liquidation_price = Decimal(str(position.estLiquidationPrice))
+            denom = liquidation_price - entry_price
+            if denom == Decimal('0'):
+                return 0.0
+            liquidation_rate = (mark_price - entry_price) / denom
+            return float(max(Decimal('0'), liquidation_rate))
+        except Exception as e:
+            self.logger.log(f"Error calculating liquidation rate: {e}", "WARNING")
+            return 0.0
     
     async def emergency_reduce_position(self) -> bool:
         """
