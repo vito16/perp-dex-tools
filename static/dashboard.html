@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多币种对冲自动化监控 - Perp DEX Tools</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent: #38bdf8;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding-bottom: 50px;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(15, 23, 42, 0.8);
+        }
+
+        header h1 {
+            font-size: 1rem;
+            color: var(--accent);
+            letter-spacing: 1px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .btn {
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            padding: 6px 16px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+
+        .btn:hover {
+            background: var(--accent);
+            color: var(--bg);
+        }
+
+        .btn-danger {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: transparent;
+        }
+        .btn-danger:hover {
+            background: var(--danger);
+            color: white;
+        }
+
+        #container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2.5rem;
+        }
+
+        .ticker-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .ticker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.75rem;
+        }
+
+        .ticker-name-row {
+            display: flex;
+            align-items: baseline;
+            gap: 15px;
+        }
+
+        .ticker-name {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--accent);
+            line-height: 1;
+        }
+
+        .update-time {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono';
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+        }
+
+        .summary-item {
+            background: rgba(0, 0, 0, 0.25);
+            padding: 1rem;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .summary-item .label {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .summary-item .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono';
+            letter-spacing: -1px;
+        }
+
+        .alert-bg {
+            background: rgba(239, 68, 68, 0.08) !important;
+            border-color: var(--danger) !important;
+            color: var(--danger);
+            box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.1);
+        }
+
+        .success-bg {
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        .tables-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .content-box {
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 16px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .content-box h3 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .content-box h3::before {
+            content: "";
+            width: 4px;
+            height: 16px;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+
+        .sub-table-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .sub-table-title {
+            font-size: 0.7rem;
+            color: var(--accent);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.6rem 0.5rem;
+            color: var(--text-dim);
+            border-bottom: 1px solid var(--border);
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 0.65rem;
+        }
+
+        td {
+            padding: 0.75rem 0.5rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono';
+        }
+
+        .side-buy {
+            color: var(--success);
+        }
+
+        .side-sell {
+            color: var(--danger);
+        }
+
+        .pnl-pos {
+            color: var(--success);
+            font-weight: 700;
+        }
+
+        .pnl-neg {
+            color: var(--danger);
+            font-weight: 700;
+        }
+
+        .loading-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 3px;
+            background: var(--accent);
+            z-index: 1001;
+            transition: width 0.3s;
+            box-shadow: 0 0 10px var(--accent);
+        }
+
+        .badge {
+            font-size: 0.6rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            font-weight: 600;
+        }
+
+        /* Modal Styles */
+        #modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(8px);
+        }
+
+        .modal {
+            background: #1e293b;
+            border: 1px solid var(--accent);
+            padding: 2rem;
+            border-radius: 20px;
+            width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .modal h2 {
+            font-size: 1.25rem;
+            color: var(--accent);
+        }
+
+        .modal input {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            padding: 10px;
+            border-radius: 8px;
+            color: white;
+            outline: none;
+        }
+
+        .modal-list {
+            max-height: 200px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .modal-list-item {
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .modal-list-item:hover {
+            background: var(--accent);
+            color: #000;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-bar" class="loading-bar"></div>
+    <header>
+        <h1>MATRIX MONITORING CORE v2.1</h1>
+        <div class="header-actions">
+            <button class="btn" onclick="showAddTicker()">+ 添加监控币种</button>
+            <div style="font-size: 0.75rem; color: var(--text-dim); font-family: 'JetBrains Mono'" id="timer">REFRESH: 5s</div>
+        </div>
+    </header>
+
+    <div id="container">
+        <!-- Initializers -->
+        <div style="text-align: center; padding: 15vw; color: var(--text-dim); font-size: 0.9rem;">
+            <div style="margin-bottom: 20px; font-size: 1.2rem; color: var(--accent)">READY FOR MONITORING</div>
+            点击上方按钮添加您需要监控的交易对
+        </div>
+    </div>
+
+    <div id="modal-overlay">
+        <div class="modal">
+            <h2>添加监控交易对</h2>
+            <div style="font-size: 0.8rem; color: var(--text-dim)">直接输入币种名称 (如: PYTH, HBAR)</div>
+            <input type="text" id="ticker-input" placeholder="输入 Ticker..." onkeypress="if(event.key==='Enter') addTicker()">
+            
+            <div id="available-list-title" style="font-size: 0.8rem; color: var(--accent); margin-top: 10px; display: none;">从日志发现的潜在币种:</div>
+            <div id="available-list" class="modal-list"></div>
+
+            <div class="modal-actions">
+                <button class="btn btn-danger" onclick="hideAddTicker()">取消</button>
+                <button class="btn" onclick="addTicker()">确定添加</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let timer = 5;
+        let monitoredTickers = [];
+
+        async function init() {
+            const resp = await fetch('/api/monitored_tickers');
+            const data = await resp.json();
+            monitoredTickers = data.tickers || [];
+            updateAll();
+        }
+
+        async function updateAll() {
+            if (monitoredTickers.length === 0) {
+                document.getElementById('container').innerHTML = `
+                    <div style="text-align: center; padding: 15vw; color: var(--text-dim); font-size: 0.9rem;">
+                        <div style="margin-bottom: 20px; font-size: 1.2rem; color: var(--accent)">NO ACTIVE MONITORS</div>
+                        点击上方按钮添加您需要监控的交易对
+                    </div>
+                `;
+                return;
+            }
+            const bar = document.getElementById('loading-bar');
+            bar.style.width = '30%';
+            try {
+                const resp = await fetch('/api/status/all');
+                if (!resp.ok) {
+                    const errData = await resp.json();
+                    throw new Error(errData.error || `HTTP ${resp.status}`);
+                }
+                const data = await resp.json();
+                bar.style.width = '100%';
+                renderAll(data.results);
+                setTimeout(() => bar.style.width = '0', 500);
+                timer = 5;
+            } catch (e) {
+                console.error(e);
+                const container = document.getElementById('container');
+                container.innerHTML = `
+                    <div style="text-align:center; padding: 100px; color:var(--danger)">
+                        <div style="font-size: 2rem; margin-bottom: 20px;">⚠️ 数据加载失败</div>
+                        <div style="background: rgba(239, 68, 68, 0.1); padding: 20px; border-radius: 12px; display: inline-block; border: 1px solid var(--danger);">
+                            ${e.message}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        async function showAddTicker() {
+            document.getElementById('modal-overlay').style.display = 'flex';
+            document.getElementById('ticker-input').focus();
+            
+            // Load available
+            const resp = await fetch('/api/available_tickers');
+            const data = await resp.json();
+            const list = document.getElementById('available-list');
+            const title = document.getElementById('available-list-title');
+            
+            if (data.available && data.available.length > 0) {
+                title.style.display = 'block';
+                list.innerHTML = data.available.map(t => `
+                    <div class="modal-list-item" onclick="selectAvailable('${t}')">
+                        <span>${t}</span>
+                        <span style="font-size: 0.6rem; opacity: 0.5;">发现于日志</span>
+                    </div>
+                `).join('');
+            } else {
+                title.style.display = 'none';
+                list.innerHTML = '';
+            }
+        }
+
+        function selectAvailable(ticker) {
+            document.getElementById('ticker-input').value = ticker;
+            addTicker();
+        }
+
+        function hideAddTicker() {
+            document.getElementById('modal-overlay').style.display = 'none';
+        }
+
+        async function addTicker() {
+            const input = document.getElementById('ticker-input');
+            const ticker = input.value.trim().toUpperCase();
+            if (!ticker) return;
+            
+            monitoredTickers.push(ticker);
+            monitoredTickers = [...new Set(monitoredTickers)];
+            
+            await saveMonitored();
+            input.value = '';
+            hideAddTicker();
+            updateAll();
+        }
+
+        async function removeTicker(ticker) {
+            if (!confirm(`确定取消监控 ${ticker} 吗？`)) return;
+            monitoredTickers = monitoredTickers.filter(t => t !== ticker);
+            await saveMonitored();
+            updateAll();
+        }
+
+        async function saveMonitored() {
+            await fetch('/api/monitored_tickers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tickers: monitoredTickers })
+            });
+        }
+
+        function renderAll(results) {
+            const container = document.getElementById('container');
+            container.innerHTML = results.map(r => renderTickerSection(r)).join('');
+        }
+
+        function renderTickerSection(r) {
+            const delta = r.status.imbalance;
+            const isBalanced = r.status.is_balanced;
+            const bpPos = r.backpack.positions;
+            const ltPos = r.lighter.positions;
+
+            return `
+                <div class="ticker-section">
+                    <div class="ticker-header">
+                        <div class="ticker-name-row">
+                            <div class="ticker-name">${r.ticker}</div>
+                            <div class="update-time">UPDATE: ${new Date(r.timestamp).toLocaleTimeString()}</div>
+                        </div>
+                        <button class="btn btn-danger" onclick="removeTicker('${r.ticker}')">移除监控</button>
+                    </div>
+
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <div class="label">Backpack 持仓</div>
+                            <div class="value ${bpPos > 0 ? 'side-buy' : (bpPos < 0 ? 'side-sell' : '')}">${bpPos.toFixed(4)}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="label">Lighter 持仓</div>
+                            <div class="value ${ltPos > 0 ? 'side-buy' : (ltPos < 0 ? 'side-sell' : '')}">${ltPos.toFixed(4)}</div>
+                        </div>
+                        <div class="summary-item ${isBalanced ? 'success-bg' : 'alert-bg'}">
+                            <div class="label">持仓差额 (Delta)</div>
+                            <div class="value">${(delta > 0 ? '+' : '') + delta.toFixed(4)}</div>
+                        </div>
+                        <div class="summary-item" style="border-right: 4px solid var(--accent)">
+                            <div class="label">账户余额 (USDC)</div>
+                            <div style="font-size: 1rem; font-weight: 700; font-family:'JetBrains Mono'">
+                                BP: ${r.backpack.balance.toFixed(1)} u | LT: ${r.lighter.balance.toFixed(1)} u
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tables-container">
+                        <div class="content-box">
+                            <h3>BACKPACK EXCHANGE</h3>
+                            <div class="sub-table-container">
+                                <div class="sub-table-title">活跃挂单 <span class="badge">ACTIVE</span></div>
+                                ${renderOrders(r.backpack.orders)}
+                            </div>
+                            <div class="sub-table-container" style="margin-top: 10px">
+                                <div class="sub-table-title">成交记录 (官方实收盈亏) <span class="badge">REALIZED P&L</span></div>
+                                ${renderHistory(r.backpack.history)}
+                            </div>
+                        </div>
+
+                        <div class="content-box">
+                            <h3>LIGHTER DEX</h3>
+                            <div class="sub-table-container">
+                                <div class="sub-table-title">活跃挂单 <span class="badge">ACTIVE</span></div>
+                                ${renderOrders(r.lighter.orders)}
+                            </div>
+                            <div class="sub-table-container" style="margin-top: 10px">
+                                <div class="sub-table-title">近期成交明细 <span class="badge">HISTORY</span></div>
+                                ${renderHistory(r.lighter.history)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderOrders(orders) {
+            if (!orders || orders.length === 0) return '<div style="font-size: 0.7rem; color: var(--text-dim); padding: 10px; border: 1px dashed var(--border); border-radius: 8px;">无活跃挂单</div>';
+            return `
+                <table>
+                    <thead><tr><th>方向</th><th>价格</th><th>已填/总量</th><th>状态</th></tr></thead>
+                    <tbody>
+                        ${orders.map(o => `
+                            <tr>
+                                <td class="side-${o.side.toLowerCase()}" style="font-weight:700">${o.side === 'buy' ? '买入' : '卖出'}</td>
+                                <td class="mono">${o.price.toFixed(6)}</td>
+                                <td class="mono">${o.filled.toFixed(2)}/${o.size.toFixed(2)}</td>
+                                <td><span class="badge">${o.status}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function renderHistory(history) {
+            if (!history || history.length === 0) return '<div style="font-size: 0.7rem; color: var(--text-dim); padding: 10px; border: 1px dashed var(--border); border-radius: 8px;">暂无实盘成交记录</div>';
+            return `
+                <table>
+                    <thead><tr><th>成交时间</th><th>方向</th><th>价格</th><th>数量</th><th>盈亏</th></tr></thead>
+                    <tbody>
+                        ${history.map(h => {
+                const pnl = h.p_l;
+                const pnlNumeric = parseFloat(pnl);
+                const pnlClass = pnl === '--' ? '' : (pnlNumeric > 0 ? 'pnl-pos' : (pnlNumeric < 0 ? 'pnl-neg' : ''));
+                const pnlText = pnl === '--' ? '--' : (pnlNumeric > 0 ? '+' : '') + pnlNumeric.toFixed(4);
+                return `
+                                <tr>
+                                    <td style="color: var(--text-dim); font-size: 0.65rem">${h.timestamp ? new Date(h.timestamp).toLocaleTimeString() : '--'}</td>
+                                    <td class="side-${h.side.toLowerCase()}">${h.side === 'buy' ? '买入' : '卖出'}</td>
+                                    <td class="mono">${parseFloat(h.price).toFixed(6)}</td>
+                                    <td class="mono">${parseFloat(h.quantity).toFixed(2)}</td>
+                                    <td class="mono ${pnlClass}">${pnlText}</td>
+                                </tr>
+                            `;
+            }).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        setInterval(() => {
+            if (monitoredTickers.length > 0) {
+                timer--;
+                if (timer <= 0) updateAll();
+                document.getElementById('timer').innerText = `REFRESH: ${timer}s`;
+            }
+        }, 1000);
+
+        init();
+    </script>
+</body>
+</html>

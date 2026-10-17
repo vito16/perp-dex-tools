@@ -72,7 +72,7 @@ Examples:
 
 def validate_exchange(exchange):
     """Validate that the exchange is supported."""
-    supported_exchanges = ['backpack', 'extended', 'apex', 'grvt', 'edgex', 'nado', 'standx']
+    supported_exchanges = ['backpack', 'extended', 'apex', 'grvt', 'edgex', 'nado', 'standx', 'backpack_paradex']
     if exchange.lower() not in supported_exchanges:
         print(f"Error: Unsupported exchange '{exchange}'")
         print(f"Supported exchanges: {', '.join(supported_exchanges)}")
@@ -105,6 +105,9 @@ def get_hedge_bot_class(exchange, v2=False):
             return HedgeBot
         elif exchange.lower() == 'standx':
             from hedge.hedge_mode_standx import HedgeBot
+            return HedgeBot
+        elif exchange.lower() == 'backpack_paradex':
+            from hedge.hedge_mode_bp_paradex import HedgeBot
             return HedgeBot
         else:
             raise ValueError(f"Unsupported exchange: {exchange}")
@@ -152,7 +155,7 @@ async def main():
                 fill_timeout=args.fill_timeout,
                 max_position=args.max_position
             )
-        elif args.exchange in ['backpack', 'edgex', 'nado', 'grvt', 'standx']:
+        elif args.exchange in ['backpack', 'edgex', 'nado', 'grvt', 'standx', 'backpack_paradex']:
             bot = HedgeBotClass(
                 ticker=args.ticker.upper(),
                 order_quantity=Decimal(args.size),
