@@ -84,3 +84,20 @@ TIMEZONE=Asia/Shanghai
 # EdgeX API Endpoints
 EDGEX_BASE_URL=https://pro.edgex.exchange
 EDGEX_WS_URL=wss://quote.edgex.exchange
+
+# Arcus Configuration
+# API signing key is an Ed25519 API key, not a wallet private key.
+ARCUS_NETWORK=testnet
+ARCUS_WALLET_ADDRESS=
+ARCUS_API_SIGNING_KEY=
+ARCUS_ACCOUNT_INDEX=0
+
+# New entries are allowed only during US core session.
+# Existing close orders remain active outside this window.
+ARCUS_ENTRY_SESSION_START=09:30
+ARCUS_ENTRY_SESSION_END=16:00
+
+# Arcus entry session restriction
+# false = allow entries during the full perpetual session
+# true  = restrict new entries to the configured US session
+ARCUS_ENTRY_SESSION_ENABLED=false

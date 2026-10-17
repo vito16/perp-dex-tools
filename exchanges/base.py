@@ -118,6 +118,11 @@ class BaseExchangeClient(ABC):
         """Get account positions."""
         pass
 
+
+    async def can_open_new_orders(self) -> bool:
+        """Return whether the venue allows a new opening order."""
+        return True
+
     @abstractmethod
     def setup_order_update_handler(self, handler) -> None:
         """Setup order update handler for WebSocket."""

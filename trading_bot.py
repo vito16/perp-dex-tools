@@ -32,6 +32,7 @@ class TradingConfig:
     stop_price: Decimal
     pause_price: Decimal
     boost_mode: bool
+    dry_run: bool = False
 
     @property
     def close_order_side(self) -> str:
@@ -76,6 +77,7 @@ class TradingBot:
         self.last_close_orders = 0
         self.last_open_order_time = 0
         self.last_log_time = 0
+        self.last_telegram_status_time = 0
         self.current_order_status = None
         self.order_filled_event = asyncio.Event()
         self.order_canceled_event = asyncio.Event()
@@ -190,13 +192,84 @@ class TradingBot:
         else:
             return 1
 
+    async def _has_open_capacity(self) -> bool:
+        """Prevent new entries from exceeding max-orders exposure.
+
+        This only blocks new opening orders. Existing positions and
+        reduce-only closing orders are not cancelled or modified.
+        """
+        live_position = abs(
+            await self.exchange_client.get_account_positions()
+        )
+
+        active_orders = await self.exchange_client.get_active_orders(
+            self.config.contract_id
+        )
+
+        opening_side = self.config.direction.lower()
+
+        pending_open_quantity = sum(
+            abs(order.size)
+            for order in active_orders
+            if order.side.lower() == opening_side
+            and order.status in ("OPEN", "PARTIALLY_FILLED")
+        )
+
+        max_exposure = (
+            self.config.quantity * self.config.max_orders
+        )
+
+        projected_exposure = (
+            live_position
+            + pending_open_quantity
+            + self.config.quantity
+        )
+
+        if projected_exposure > max_exposure:
+            self.logger.log(
+                "[RISK] New opening order blocked: "
+                f"live_position={live_position}, "
+                f"pending_open={pending_open_quantity}, "
+                f"new_order={self.config.quantity}, "
+                f"max_exposure={max_exposure}",
+                "WARNING",
+            )
+            return False
+
+        return True
+
     async def _place_and_monitor_open_order(self) -> bool:
         """Place an order and monitor its execution."""
         try:
+            if self.config.dry_run:
+                dry_run_price = await self.exchange_client.get_order_price(
+                    self.config.direction
+                )
+
+                self.logger.log(
+                    f"[DRY-RUN] Would place "
+                    f"{self.config.direction.upper()} "
+                    f"{self.config.quantity} {self.config.ticker} "
+                    f"at {dry_run_price}; no order was sent",
+                    "INFO",
+                )
+
+                self.last_open_order_time = time.time()
+
+                # Keep dry-run pacing consistent with the real strategy loop.
+                # The outer loop increments last_close_orders after this method.
+                self.last_close_orders = len(self.active_close_orders) - 1
+
+                return True
+
             # Reset state before placing order
             self.order_filled_event.clear()
             self.current_order_status = 'OPEN'
             self.order_filled_amount = 0.0
+
+            # Hard live exposure guard before every opening attempt.
+            if not await self._has_open_capacity():
+                return False
 
             # Place the order
             order_result = await self.exchange_client.place_open_order(
@@ -207,6 +280,21 @@ class TradingBot:
 
             if not order_result.success:
                 return False
+
+            if self._telegram_flag(
+                "TELEGRAM_NOTIFY_ORDER_SUBMITTED",
+                True,
+            ):
+                await self._notify_order_event(
+                    "🟡 Arcus QQQ 新开仓订单",
+                    order_result.order_id,
+                    self.config.direction,
+                    order_result.filled_size
+                    or order_result.size,
+                    order_result.price,
+                    order_result.status,
+                    False,
+                )
 
             if order_result.status == 'FILLED':
                 return await self._handle_order_result(order_result)
@@ -220,9 +308,60 @@ class TradingBot:
             return await self._handle_order_result(order_result)
 
         except Exception as e:
-            self.logger.log(f"Error placing order: {e}", "ERROR")
-            self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            error_text = str(e)
+
+            if "HTTP 401" in error_text or "HTTP 403" in error_text:
+                self.logger.log(
+                    "Authentication/permission error; "
+                    "stopping bot to prevent repeated order attempts",
+                    "ERROR",
+                )
+                self.shutdown_requested = True
+
+            self.logger.log(
+                f"Error placing order: {e}",
+                "ERROR",
+            )
+            self.logger.log(
+                f"Traceback: {traceback.format_exc()}",
+                "ERROR",
+            )
             return False
+
+    async def _place_close_order_and_notify(
+        self,
+        contract_id,
+        quantity,
+        price,
+        side,
+    ):
+        close_order_result = await (
+            self.exchange_client.place_close_order(
+                contract_id,
+                quantity,
+                price,
+                side,
+            )
+        )
+
+        if (
+            close_order_result.success
+            and self._telegram_flag(
+                "TELEGRAM_NOTIFY_ORDER_SUBMITTED",
+                True,
+            )
+        ):
+            await self._notify_order_event(
+                "🟣 Arcus QQQ 新止盈平仓单",
+                close_order_result.order_id,
+                side,
+                close_order_result.size,
+                close_order_result.price,
+                close_order_result.status,
+                True,
+            )
+
+        return close_order_result
 
     async def _handle_order_result(self, order_result) -> bool:
         """Handle the result of an order placement."""
@@ -230,6 +369,22 @@ class TradingBot:
         filled_price = order_result.price
 
         if self.order_filled_event.is_set() or order_result.status == 'FILLED':
+            if self._telegram_flag(
+                "TELEGRAM_NOTIFY_ORDER_FILLED",
+                True,
+            ):
+                await self._notify_order_event(
+                    "✅ Arcus QQQ 开仓成交",
+                    order_result.order_id,
+                    self.config.direction,
+                    self.order_filled_amount
+                    or order_result.filled_size
+                    or order_result.size,
+                    filled_price,
+                    "FILLED",
+                    False,
+                )
+
             if self.config.boost_mode:
                 close_order_result = await self.exchange_client.place_market_order(
                     self.config.contract_id,
@@ -245,7 +400,7 @@ class TradingBot:
                 else:
                     close_price = filled_price * (1 - self.config.take_profit/100)
 
-                close_order_result = await self.exchange_client.place_close_order(
+                close_order_result = await self._place_close_order_and_notify(
                     self.config.contract_id,
                     self.config.quantity,
                     close_price,
@@ -331,7 +486,7 @@ class TradingBot:
             if self.order_filled_amount > 0:
                 close_side = self.config.close_order_side
                 if self.config.boost_mode:
-                    close_order_result = await self.exchange_client.place_close_order(
+                    close_order_result = await self._place_close_order_and_notify(
                         self.config.contract_id,
                         self.order_filled_amount,
                         filled_price,
@@ -343,7 +498,7 @@ class TradingBot:
                     else:
                         close_price = filled_price * (1 - self.config.take_profit/100)
 
-                    close_order_result = await self.exchange_client.place_close_order(
+                    close_order_result = await self._place_close_order_and_notify(
                         self.config.contract_id,
                         self.order_filled_amount,
                         close_price,
@@ -391,6 +546,12 @@ class TradingBot:
 
                 self.logger.log(f"Current Position: {position_amt} | Active closing amount: {active_close_amount} | "
                                 f"Order quantity: {len(self.active_close_orders)}")
+
+                await self._notify_status_snapshot(
+                    position_amt,
+                    active_close_amount,
+                )
+
                 self.last_log_time = time.time()
                 # Check for position mismatch
                 if abs(position_amt - active_close_amount) > (2 * self.config.quantity):
@@ -476,17 +637,188 @@ class TradingBot:
 
         return stop_trading, pause_trading
 
+    def _telegram_flag(self, name: str, default: bool = True) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in ("1", "true", "yes", "on")
+
+    async def _notify_order_event(
+        self,
+        title: str,
+        order_id: str,
+        side: str,
+        quantity,
+        price,
+        status: str,
+        reduce_only: bool,
+    ):
+        if not self._telegram_flag(
+            "TELEGRAM_NOTIFY_ORDER_SUBMITTED",
+            True,
+        ):
+            return
+
+        message = (
+            f"{title}\n"
+            f"交易所：Arcus\n"
+            f"市场：{self.config.contract_id}\n"
+            f"方向：{str(side).upper()}\n"
+            f"数量：{quantity}\n"
+            f"价格：{price}\n"
+            f"订单 ID：{order_id}\n"
+            f"状态：{status}\n"
+            f"ReduceOnly：{'是' if reduce_only else '否'}"
+        )
+
+        await self.send_notification(message)
+
+    async def _notify_status_snapshot(
+        self,
+        position_amount,
+        active_close_amount,
+    ):
+        if not self._telegram_flag(
+            "TELEGRAM_NOTIFY_STATUS",
+            True,
+        ):
+            return
+
+        interval = int(
+            os.getenv("TELEGRAM_STATUS_INTERVAL", "300")
+        )
+
+        now = time.time()
+
+        if now - self.last_telegram_status_time < interval:
+            return
+
+        snapshot_method = getattr(
+            self.exchange_client,
+            "get_account_snapshot",
+            None,
+        )
+
+        if snapshot_method is None:
+            return
+
+        try:
+            account = await snapshot_method()
+
+            equity = account.get("equity", "N/A")
+            free_collateral = account.get(
+                "freeCollateral",
+                "N/A",
+            )
+            net_quote_balance = account.get(
+                "netQuoteBalance",
+                "N/A",
+            )
+
+            positions = account.get("positions", {})
+            position_row = None
+
+            for row in positions.values():
+                if str(row.get("marketDisplayName", "")).upper() == str(
+                    self.config.contract_id
+                ).upper():
+                    position_row = row
+                    break
+
+            if position_row is None and positions:
+                position_row = next(iter(positions.values()))
+
+            if position_row:
+                side = position_row.get("side", "FLAT")
+                size = position_row.get("size", "0")
+                entry = position_row.get(
+                    "averageEntryPrice",
+                    "N/A",
+                )
+                mark = position_row.get("markPx", "N/A")
+                notional = position_row.get(
+                    "positionValueNotional",
+                    "N/A",
+                )
+                margin = position_row.get(
+                    "marginUsed",
+                    "N/A",
+                )
+                leverage = position_row.get(
+                    "leverage",
+                    "N/A",
+                )
+                unrealized = position_row.get(
+                    "unrealizedPnl",
+                    "0",
+                )
+                funding = position_row.get(
+                    "cumulativeFunding",
+                    "N/A",
+                )
+            else:
+                side = "FLAT"
+                size = "0"
+                entry = "N/A"
+                mark = "N/A"
+                notional = "0"
+                margin = "0"
+                leverage = "N/A"
+                unrealized = "0"
+                funding = "N/A"
+
+            message = (
+                "📊 Arcus QQQ 状态\n\n"
+                f"方向：{side}\n"
+                f"仓位：{size}\n"
+                f"平均入场价：{entry}\n"
+                f"标记价格：{mark}\n"
+                f"名义价值：{notional}\n"
+                f"保证金占用：{margin}\n"
+                f"杠杆：{leverage}\n"
+                f"未实现 PnL：{unrealized}\n"
+                f"累计资金费：{funding}\n\n"
+                f"账户权益：{equity}\n"
+                f"可用保证金：{free_collateral}\n"
+                f"净报价余额：{net_quote_balance}\n\n"
+                f"活动平仓数量：{active_close_amount}\n"
+                f"保护数量：{active_close_amount}\n"
+                f"风险状态："
+                f"{'正常' if abs(position_amount) <= abs(active_close_amount) else '需要检查'}"
+            )
+
+            await self.send_notification(message)
+            self.last_telegram_status_time = now
+
+        except Exception as exc:
+            self.logger.log(
+                f"Telegram status snapshot failed: {exc}",
+                "WARNING",
+            )
+
     async def send_notification(self, message: str):
         lark_token = os.getenv("LARK_TOKEN")
         if lark_token:
             async with LarkBot(lark_token) as lark_bot:
                 await lark_bot.send_text(message)
 
+        telegram_enabled = os.getenv(
+            "TELEGRAM_NOTIFY_ENABLED",
+            "true",
+        ).strip().lower() in ("1", "true", "yes", "on")
+
         telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
-        if telegram_token and telegram_chat_id:
-            with TelegramBot(telegram_token, telegram_chat_id) as tg_bot:
-                tg_bot.send_text(message)
+
+        if telegram_enabled and telegram_token and telegram_chat_id:
+            def send_telegram():
+                with TelegramBot(
+                    telegram_token,
+                    telegram_chat_id,
+                ) as tg_bot:
+                    return tg_bot.send_text(message)
+
+            await asyncio.to_thread(send_telegram)
 
     async def run(self):
         """Main trading loop."""
@@ -549,6 +881,12 @@ class TradingBot:
                     continue
 
                 if not mismatch_detected:
+                    # This blocks only new opening orders. Existing close
+                    # orders remain active and may continue to fill.
+                    if not await self.exchange_client.can_open_new_orders():
+                        await asyncio.sleep(5)
+                        continue
+
                     wait_time = self._calculate_wait_time()
 
                     if wait_time > 0:
