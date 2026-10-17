@@ -22,6 +22,7 @@ class ExchangeFactory:
         'ethereal': 'exchanges.ethereal.EtherealClient',
         'standx': 'exchanges.standx.StandXClient',
         'arcus': 'exchanges.arcus.ArcusClient',
+        'binance': 'exchanges.binance.BinanceClient',
     }
 
     @classmethod
