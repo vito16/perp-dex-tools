@@ -24,6 +24,7 @@ class ExchangeFactory:
         'arcus': 'exchanges.arcus.ArcusClient',
         'binance': 'exchanges.binance.BinanceClient',
         'bingx': 'exchanges.bingx.BingxClient',
+        'hyperliquid': 'exchanges.hyperliquid.HyperliquidClient',
     }
 
     @classmethod
