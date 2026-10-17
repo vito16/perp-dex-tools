@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Virtual environments
+.venv
+
+# Environment files (will be mounted separately)
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs (will be mounted as volume)
+logs/
+*.log
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README_DOCKER.md
+docs/
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Temporary files
+tmp.md
+*.tmp
+*.bak
+*.cache
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Distribution
+dist/
+build/
+*.egg-info/

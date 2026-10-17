@@ -1,0 +1,90 @@
+services:
+  trading-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perp-dex-trading-bot
+    # 从 .env 文件加载环境变量（供 docker-compose 使用）
+    env_file:
+      - .env
+    volumes:
+      # 挂载日志目录，将日志持久化到主机
+      - ./logs:/app/logs
+      # 挂载 .env 文件，让机器人在运行时可以读取
+      # 用户：运行前请从 .env.example 创建 .env 文件
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    # 用你的交易参数覆盖
+    command: [
+      "--exchange", "paradex",
+      "--ticker", "ETH",
+      "--quantity", "0.1",
+      "--take-profit", "0.02",
+      "--direction", "buy",
+      "--max-orders", "40",
+      "--wait-time", "450"
+    ]
+
+  # 不同交易所的配置示例
+  # 取消注释并修改你想使用的配置
+
+  # EdgeX 示例
+  # trading-bot-edgex:
+  #   extends: trading-bot
+  #   container_name: trading-bot-edgex
+  #   command: [
+  #     "--exchange", "edgex",
+  #     "--ticker", "ETH",
+  #     "--quantity", "0.1",
+  #     "--take-profit", "0.02",
+  #     "--direction", "buy"
+  #   ]
+
+  # Backpack 示例
+  # trading-bot-backpack:
+  #   extends: trading-bot
+  #   container_name: trading-bot-backpack
+  #   command: [
+  #     "--exchange", "backpack",
+  #     "--ticker", "SOL",
+  #     "--quantity", "0.5",
+  #     "--take-profit", "0.05",
+  #     "--direction", "buy",
+  #     "--boost"
+  #   ]
+
+  # Aster 示例
+  # trading-bot-aster:
+  #   extends: trading-bot
+  #   container_name: trading-bot-aster
+  #   command: [
+  #     "--exchange", "aster",
+  #     "--ticker", "BTC",
+  #     "--quantity", "0.01",
+  #     "--take-profit", "0.1",
+  #     "--direction", "sell"
+  #   ]
+
+  # Paradex 示例
+  # trading-bot-paradex:
+  #   extends: trading-bot
+  #   container_name: trading-bot-paradex
+  #   command: [
+  #     "--exchange", "paradex",
+  #     "--ticker", "ETH",
+  #     "--quantity", "0.1",
+  #     "--take-profit", "0.02",
+  #     "--direction", "buy"
+  #   ]
+
+  # GRVT 示例
+  # trading-bot-grvt:
+  #   extends: trading-bot
+  #   container_name: trading-bot-grvt
+  #   command: [
+  #     "--exchange", "grvt",
+  #     "--ticker", "ETH",
+  #     "--quantity", "0.1",
+  #     "--take-profit", "0.02",
+  #     "--direction", "buy"
+  #   ]
