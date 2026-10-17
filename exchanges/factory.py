@@ -23,6 +23,7 @@ class ExchangeFactory:
         'standx': 'exchanges.standx.StandXClient',
         'arcus': 'exchanges.arcus.ArcusClient',
         'binance': 'exchanges.binance.BinanceClient',
+        'bingx': 'exchanges.bingx.BingxClient',
     }
 
     @classmethod
